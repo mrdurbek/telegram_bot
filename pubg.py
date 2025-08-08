@@ -64,9 +64,11 @@ def load_json(filename):
         return {}
 
 def send_main_menu(chat_id, text="Asosiy menyu:"):
-    """Send main menu keyboard"""
-    markup = main_menu(chat_id)
-    bot.send_message(chat_id, text, reply_markup=markup)        
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row("📨 Referal havola", "📊 Referal reyting")
+    markup.row("🎁 Konkurslar", "💰 UC balans")
+    markup.row("💸 UC yechish")
+    bot.send_message(chat_id, text, reply_markup=markup)       
 
 def save_json(filename, data):
     with open(filename, 'w') as f:
@@ -435,6 +437,7 @@ if __name__ == "__main__":
                     bot.send_message(admin, f"Bot crashed: {e}")
             except Exception as admin_error:
                 print(f"Failed to notify admin {admin}: {admin_error}")
+
 
 
 
