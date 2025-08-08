@@ -274,29 +274,36 @@ def show_referral_rating(chat_id, start_date, end_date):
     
     rating.sort(key=lambda x: x[1], reverse=True)
     
+    # Build message without Markdown formatting
     message = f"🏆 Referal reyting ({start_date} - {end_date}):\n\n"
-    message += "┌──────────┬──────────────────────┬─────────┬───────┐\n"
-    message += "│ {:<8} │ {:<20} │ {:<7} │ {:<5} │\n".format("Reyting", "Foydalanuvchi", "Do'stlar", "UC")
-    message += "├──────────┼──────────────────────┼─────────┼───────┤\n"
+    message += "┌──────────┬──────────────────────┬──────────┬───────┐\n"
+    message += "│ Reyting  │ Foydalanuvchi        │ Do'stlar │ UC    │\n"
+    message += "├──────────┼──────────────────────┼──────────┼───────┤\n"
     
     for idx, (user_id, ref_count, uc_balance) in enumerate(rating[:10], 1):
         try:
             user_chat = bot.get_chat(user_id)
-            username = f"@{user_chat.username}" if user_chat.username else f"ID: {user_id}"
+            username = f"@{user_chat.username}" if user_chat.username else f"ID:{user_id}"
         except:
-            username = f"ID: {user_id}"
+            username = f"ID:{user_id}"
         
-        message += "│ {:<8} │ {:<20} │ {:<7} │ {:<5} │\n".format(
-            f"#{idx}",
-            username[:20],
-            ref_count,
-            uc_balance
-        )
+        # Remove any Markdown special characters
+        username = username.replace("*", "").replace("_", "").replace("`", "").replace("[", "").replace("]", "")
+        
+        message += f"│ #{idx:<7} │ {username[:20]:<20} │ {ref_count:<7} │ {uc_balance:<5} │\n"
     
     message += "└──────────┴──────────────────────┴─────────┴───────┘\n\n"
     message += f"📊 Jami referallar: {sum([x[1] for x in rating])}"
     
-    bot.send_message(chat_id, message, parse_mode="Markdown")
+    # Send as plain text without Markdown
+    try:
+        bot.send_message(chat_id, message)
+    except Exception as e:
+        print(f"Failed to send rating message: {e}")
+        # Fallback to simpler message if still failing
+        bot.send_message(chat_id, f"Referal reyting ({start_date} - {end_date})\n" +
+                         "\n".join([f"{idx}. {username}: {ref_count} do'st" 
+                                   for idx, (_, ref_count, _) in enumerate(rating[:10], 1)]))
 
 # --- UC WITHDRAWAL ---
 @bot.message_handler(func=lambda msg: msg.text == "💸 UC yechish")
@@ -503,6 +510,7 @@ if __name__ == "__main__":
                     bot.send_message(admin, f"Bot crashed: {e}")
             except Exception as admin_error:
                 print(f"Failed to notify admin {admin}: {admin_error}")
+
 
 
 
