@@ -305,6 +305,112 @@ def show_referral_rating(chat_id, start_date, end_date):
                          "\n".join([f"{idx}. {username}: {ref_count} do'st" 
                                    for idx, (_, ref_count, _) in enumerate(rating[:10], 1)]))
 
+
+def check_expired_competitions():
+    competitions = load_json("competitions.json")
+    now = datetime.datetime.now()
+    
+    for comp_id, comp in list(competitions.items()):
+        try:
+            deadline = datetime.datetime.fromisoformat(comp["deadline"])
+            if now >= deadline and "winners_list" not in comp:
+                finish_competition(comp_id)
+        except Exception as e:
+            print(f"Error processing competition {comp_id}: {e}")
+
+def finish_competition(comp_id):
+    competitions = load_json("competitions.json")
+    comp = competitions[comp_id]
+    participants = comp["participants"]
+    
+    if not participants:
+        print(f"No participants for competition {comp_id}")
+        # Notify group that no one participated
+        try:
+            bot.send_message(
+                GROUP_ID,
+                f"⚠️ #{comp_id} konkursi yakunlandi. Ishtirokchilar bo'lmadi."
+            )
+        except Exception as e:
+            print(f"Could not notify group: {e}")
+        return
+        
+    winners_count = min(comp["winners"], len(participants))
+    winners = random.sample(participants, winners_count)
+    
+    # Save winners
+    comp["winners_list"] = winners
+    competitions[comp_id] = comp
+    save_json("competitions.json", competitions)
+    
+    # Prepare winner mentions
+    winner_mentions = []
+    for winner_id in winners:
+        try:
+            user = bot.get_chat(winner_id)
+            mention = f"@{user.username}" if user.username else f"[{user.first_name}](tg://user?id={user.id})"
+            winner_mentions.append(mention)
+            
+            # Notify winner privately
+            bot.send_message(
+                winner_id,
+                f"🎉 Tabriklaymiz! Siz #{comp_id} konkurs g'oliblaridan birisiz!\n\n"
+                f"Tez orada adminlar siz bilan bog'lanishadi."
+            )
+        except Exception as e:
+            print(f"Could not process winner {winner_id}: {e}")
+            winner_mentions.append(f"ID:{winner_id}")
+    
+    # Announce in group
+    try:
+        winners_text = "\n".join([f"🏆 {i+1}. {winner}" for i, winner in enumerate(winner_mentions)])
+        bot.send_message(
+            GROUP_ID,
+            f"🎊 *Konkurs #{comp_id} yakunlandi!* 🎊\n\n"
+            f"G'oliblar:\n{winners_text}\n\n"
+            "Tabriklaymiz! 🎉 Adminlar tez orada siz bilan bog'lanishadi.",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Could not announce winners in group: {e}")
+    
+    # Notify admin
+    for admin_id in ADMIN_IDS:
+        try:
+            bot.send_message(
+                admin_id,
+                f"🏆 #{comp_id} konkurs yakunlandi. G'oliblar:\n" +
+                "\n".join([f"- {winner}" for winner in winners])
+            )
+        except Exception as e:
+            print(f"Could not notify admin {admin_id}: {e}")
+
+def process_comp_winners_count(message, file_id, deadline):
+    try:
+        winners = int(message.text)
+        if winners <= 0:
+            raise ValueError
+        
+        competitions = load_json("competitions.json")
+        comp_id = str(len(competitions) + 1)
+        
+        # Store deadline as ISO format with timezone
+        deadline_iso = deadline.isoformat()
+        
+        competitions[comp_id] = {
+            "file_id": file_id,
+            "deadline": deadline_iso,
+            "winners": winners,
+            "participants": []
+        }
+        
+        save_json("competitions.json", competitions)
+        bot.send_message(message.chat.id, f"Konkurs №{comp_id} yaratildi. Endi e'lon qilinadi.")
+        post_competition(comp_id)
+        
+    except ValueError:
+        bot.send_message(message.chat.id, "Iltimos, 0 dan katta butun son kiriting:")
+
 # --- UC WITHDRAWAL ---
 @bot.message_handler(func=lambda msg: msg.text == "💸 UC yechish")
 def request_uc_withdraw(message):
@@ -406,25 +512,6 @@ def process_comp_deadline(message, file_id):
     msg = bot.send_message(message.chat.id, "G'oliblar sonini kiriting:")
     bot.register_next_step_handler(msg, process_comp_winners_count, file_id, deadline)
 
-def process_comp_winners_count(message, file_id, deadline):
-    try:
-        winners = int(message.text)
-    except:
-        return bot.send_message(message.chat.id, "Iltimos, butun son kiriting:")
-    
-    competitions = load_json("competitions.json")
-    comp_id = str(len(competitions) + 1)
-    competitions[comp_id] = {
-        "file_id": file_id,
-        "deadline": deadline.isoformat(),
-        "winners": winners,
-        "participants": []
-    }
-    save_json("competitions.json", competitions)
-    
-    bot.send_message(message.chat.id, f"Konkurs №{comp_id} yaratildi. Endi e'lon qilinadi.")
-    post_competition(comp_id)
-
 def post_competition(comp_id):
     competitions = load_json("competitions.json")
     comp = competitions[comp_id]
@@ -432,9 +519,19 @@ def post_competition(comp_id):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(types.InlineKeyboardButton("✅ Qatnashish", callback_data=f"join_{comp_id}"))
     
-    caption = f"📢 *Konkurs #{comp_id}!*\n\nVaqti: {comp['deadline']}\n\nIshtirok etish uchun 'Qatnashish' tugmasini bosing!"
-    bot.send_photo(CHANNEL_ID, comp["file_id"], caption, reply_markup=keyboard, parse_mode="Markdown")
-    bot.send_photo(GROUP_ID, comp["file_id"], caption, reply_markup=keyboard, parse_mode="Markdown")
+    caption = (
+        f"🎉 *Yangi konkurs #{comp_id}!* 🎉\n\n"
+        f"⏳ Tugash vaqti: {comp['deadline']}\n"
+        f"🏆 G'oliblar soni: {comp['winners']}\n\n"
+        "Ishtirok etish uchun quyidagi tugmani bosing!"
+    )
+    
+    # Post in both channel and group
+    try:
+        bot.send_photo(CHANNEL_ID, comp["file_id"], caption, reply_markup=keyboard, parse_mode="Markdown")
+        bot.send_photo(GROUP_ID, comp["file_id"], caption, reply_markup=keyboard, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Error posting competition: {e}")
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("join_"))
 def join_competition(call):
@@ -472,10 +569,20 @@ def start(message):
     else:
         send_main_menu(user_id, "🎮 Botga xush kelibsiz!")
 
-if __name__ == "__main__":
+iif __name__ == "__main__":
     try:
         init_db()
         print("Database initialized")
+        
+        # Start competition checker thread
+        def competition_checker():
+            while True:
+                check_expired_competitions()
+                time.sleep(60 * 5)  # Check every 5 minutes
+        
+        checker_thread = threading.Thread(target=competition_checker)
+        checker_thread.daemon = True
+        checker_thread.start()
         
         # Start health check server
         if FLASK_AVAILABLE:
@@ -501,15 +608,12 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"Bot crashed: {e}")
-        # Notify admin with proper error handling
         for admin in ADMIN_IDS:
             try:
-                # First check if the admin is a bot
-                chat = bot.get_chat(admin)
-                if chat.type == "private":  # Only send to regular users
-                    bot.send_message(admin, f"Bot crashed: {e}")
-            except Exception as admin_error:
-                print(f"Failed to notify admin {admin}: {admin_error}")
+                bot.send_message(admin, f"Bot crashed: {e}")
+            except:
+                pass
+
 
 
 
