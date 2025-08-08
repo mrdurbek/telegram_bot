@@ -569,7 +569,7 @@ def start(message):
     else:
         send_main_menu(user_id, "🎮 Botga xush kelibsiz!")
 
-iif __name__ == "__main__":
+if __name__ == "__main__":
     try:
         init_db()
         print("Database initialized")
@@ -613,6 +613,7 @@ iif __name__ == "__main__":
                 bot.send_message(admin, f"Bot crashed: {e}")
             except:
                 pass
+
 
 
 
