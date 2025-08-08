@@ -35,7 +35,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = "@swKoMBaT"
 GROUP_ID = "@swKoMBaT1"
 YOUTUBE_LINK = "https://youtube.com/@swkombat?si=5vVIGfj_NYx-yJLK"
-ADMIN_IDS = [6322816106]
+ADMIN_IDS = [1401881769]
 DB_NAME = "bot.db"
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -279,9 +279,8 @@ if __name__ == "__main__":
         init_db()
         print("Database initialized")
         
-        # Start health check server in a separate thread
+        # Start health check server
         if FLASK_AVAILABLE:
-            # Flask server
             app = Flask(__name__)
             @app.route('/')
             def health_check():
@@ -294,7 +293,6 @@ if __name__ == "__main__":
                 use_reloader=False
             ))
         else:
-            # Fallback HTTP server
             flask_thread = threading.Thread(target=run_server)
         
         flask_thread.daemon = True
@@ -305,10 +303,14 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"Bot crashed: {e}")
-        # Optionally notify admin
+        # Notify admin with proper error handling
         for admin in ADMIN_IDS:
             try:
-                bot.send_message(admin, f"Bot crashed: {e}")
-            except:
-                pass
+                # First check if the admin is a bot
+                chat = bot.get_chat(admin)
+                if chat.type == "private":  # Only send to regular users
+                    bot.send_message(admin, f"Bot crashed: {e}")
+            except Exception as admin_error:
+                print(f"Failed to notify admin {admin}: {admin_error}")
+
 
