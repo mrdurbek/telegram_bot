@@ -124,7 +124,7 @@ def send_subscription_prompt(user_id):
 def check_sub_callback(call):
     if check_subscription(call.from_user.id):
         bot.send_message(call.from_user.id, "✅ Obuna tasdiqlandi!")
-        start(call.message)
+        send_main_menu(call.from_user.id) 
     else:
         bot.send_message(call.from_user.id, "❌ Obuna aniqlanmadi. Iltimos, tekshirib qayta urinib ko'ring.")
 
@@ -503,6 +503,7 @@ if __name__ == "__main__":
                     bot.send_message(admin, f"Bot crashed: {e}")
             except Exception as admin_error:
                 print(f"Failed to notify admin {admin}: {admin_error}")
+
 
 
 
