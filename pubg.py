@@ -37,7 +37,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHANNEL_ID = "@swKoMBaT"
 GROUP_ID = "@swKoMBaT1"
 YOUTUBE_LINK = "https://youtube.com/@swkombat?si=5vVIGfj_NYx-yJLK"
-ADMIN_IDS = [6322816106,1401881769]
+ADMIN_IDS = [6322816106,1401881769,6072785933]
 DB_NAME = "bot.db"
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -510,6 +510,7 @@ if __name__ == "__main__":
                     bot.send_message(admin, f"Bot crashed: {e}")
             except Exception as admin_error:
                 print(f"Failed to notify admin {admin}: {admin_error}")
+
 
 
 
