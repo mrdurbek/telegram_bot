@@ -63,12 +63,27 @@ def load_json(filename):
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-def send_main_menu(chat_id, text="Asosiy menyu:"):
+def send_main_menu(user_id, text="Asosiy menyu:"):
+    """Send appropriate menu based on user role"""
+    markup = main_menu(user_id)
+    bot.send_message(user_id, text, reply_markup=markup)
+
+def main_menu(user_id):
+    """Generate menu based on user role"""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("📨 Referal havola", "📊 Referal reyting")
-    markup.row("🎁 Konkurslar", "💰 UC balans")
-    markup.row("💸 UC yechish")
-    bot.send_message(chat_id, text, reply_markup=markup)       
+    
+    # Common buttons for all users
+    row1 = ["📨 Referal havola", "📊 Referal reyting"]
+    row2 = ["💰 UC balans", "💸 UC yechish"]
+    
+    # Add admin button if needed
+    if user_id in ADMIN_IDS:
+        row2.insert(1, "🎁 Konkurslar")  # Insert after UC balans
+    
+    markup.row(*row1)
+    markup.row(*row2)
+    
+    return markup
 
 def save_json(filename, data):
     with open(filename, 'w') as f:
@@ -116,9 +131,27 @@ def check_sub_callback(call):
 # --- MAIN MENU ---
 def main_menu(user_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("📨 Referal havola", "📊 Referal reyting")
-    markup.row("🎁 Konkurslar", "💰 UC balans")
-    markup.row("💸 UC yechish")
+    
+    # Common buttons for all users
+    buttons = [
+        "📨 Referal havola",
+        "📊 Referal reyting",
+        "💰 UC balans",
+        "💸 UC yechish"
+    ]
+    
+    # Add admin-only button if user is admin
+    if user_id in ADMIN_IDS:
+        buttons.insert(3, "🎁 Konkurslar")  # Insert at position 3
+    
+    # Add buttons in rows
+    markup.row(buttons[0], buttons[1])  # First row
+    markup.row(buttons[2], buttons[3])  # Second row
+    
+    # Add third row only if needed
+    if len(buttons) > 4:
+        markup.row(buttons[4])  # Third row for admin
+        
     return markup
 
 # --- REFERRAL SYSTEM ---
@@ -303,18 +336,51 @@ def confirm_withdraw(message, amount):
     
     bot.send_message(user_id, f"✅ So'rovingiz qabul qilindi. Tez orada UC yuboriladi.")
 
+
+@bot.message_handler(func=lambda m: m.text == "🔙 Ortga")
+def handle_back(message):
+    """Handle back button for all users"""
+    if message.from_user.id in ADMIN_IDS:
+        # For admin, show admin menu if coming from admin section
+        if hasattr(message, 'coming_from_admin') and message.coming_from_admin:
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.row("🆕 Yangi konkurs yaratish")
+            markup.row("🔙 Asosiy menyu")
+            bot.send_message(message.chat.id, "Admin menyusi:", reply_markup=markup)
+            return
+    # For all users, return to main menu
+    send_main_menu(message.chat.id)
+
 # --- COMPETITIONS ---
-@bot.message_handler(func=lambda m: m.from_user.id in ADMIN_IDS and m.text == "🎁 Konkurslar")
-def admin_competitions_menu(message):
+@bot.message_handler(func=lambda m: m.text == "🎁 Konkurslar" and m.from_user.id in ADMIN_IDS)
+def handle_competitions_menu(message):
+    """Admin-only competitions menu"""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("🆕 Yangi konkurs yaratish")
-    markup.row("🔙 Ortga")
-    bot.send_message(message.chat.id, "Admin: nima qilamiz?", reply_markup=markup)
+    markup.row("🔙 Asosiy menyu")
+    msg = bot.send_message(
+        message.chat.id, 
+        "Admin: konkurslar boshqaruvi",
+        reply_markup=markup
+    )
+    # Mark this message as coming from admin section
+    msg.coming_from_admin = True
 
-@bot.message_handler(func=lambda m: m.from_user.id in ADMIN_IDS and m.text == "🆕 Yangi konkurs yaratish")
+@bot.message_handler(func=lambda m: m.text == "🆕 Yangi konkurs yaratish" and m.from_user.id in ADMIN_IDS)
 def ask_competition_image(message):
-    msg = bot.send_message(message.chat.id, "Konkurs rasm yuboring:")
+    """Start competition creation process"""
+    msg = bot.send_message(
+        message.chat.id, 
+        "Konkurs uchun rasm yuboring:",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+    msg.coming_from_admin = True
     bot.register_next_step_handler(msg, process_comp_image)
+
+@bot.message_handler(func=lambda m: m.text == "🔙 Asosiy menyu" and m.from_user.id in ADMIN_IDS)
+def admin_back_to_main(message):
+    """Special back button for admin menu"""
+    send_main_menu(message.chat.id)
 
 def process_comp_image(message):
     if not message.photo:
@@ -397,7 +463,7 @@ def start(message):
     if not check_subscription(user_id):
         send_subscription_prompt(user_id)
     else:
-        bot.send_message(user_id, "🎮 Botga xush kelibsiz!", reply_markup=main_menu(user_id))
+        send_main_menu(user_id, "🎮 Botga xush kelibsiz!")
 
 if __name__ == "__main__":
     try:
@@ -437,6 +503,7 @@ if __name__ == "__main__":
                     bot.send_message(admin, f"Bot crashed: {e}")
             except Exception as admin_error:
                 print(f"Failed to notify admin {admin}: {admin_error}")
+
 
 
 
