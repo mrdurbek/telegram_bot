@@ -7,6 +7,8 @@ import random
 import datetime
 import os
 import threading
+import datetime
+from telebot import types
 
 # Try to import Flask (optional for health checks)
 try:
@@ -60,6 +62,11 @@ def load_json(filename):
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+def send_main_menu(chat_id, text="Asosiy menyu:"):
+    """Send main menu keyboard"""
+    markup = main_menu(chat_id)
+    bot.send_message(chat_id, text, reply_markup=markup)        
 
 def save_json(filename, data):
     with open(filename, 'w') as f:
@@ -139,6 +146,122 @@ def send_uc(message):
     users = load_json("users.json")
     uc = users.get(str(message.from_user.id), {}).get("uc", 0)
     bot.send_message(message.chat.id, f"💰 Sizning balansingiz: {uc} UC")
+
+# --- REFERRAL RATING SYSTEM ---
+@bot.message_handler(func=lambda m: m.text == "📊 Referal reyting")
+def handle_referral_rating(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("🔄 Oxirgi 7 kun", "📅 Boshqa davr")
+    markup.add("🔙 Ortga")
+    bot.send_message(
+        message.chat.id,
+        "Referal reyting uchun davrni tanlang:",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda m: m.text == "🔄 Oxirgi 7 kun")
+def last_7_days_rating(message):
+    end_date = datetime.date.today()
+    start_date = end_date - datetime.timedelta(days=7)
+    show_referral_rating(message.chat.id, start_date, end_date)
+
+@bot.message_handler(func=lambda m: m.text == "📅 Boshqa davr")
+def ask_custom_dates(message):
+    msg = bot.send_message(
+        message.chat.id,
+        "Boshlanish sanasini yuboring (YYYY-MM-DD):\nMasalan: 2023-12-01"
+    )
+    bot.register_next_step_handler(msg, process_start_date)
+
+def process_start_date(message):
+    if message.text == "🔙 Ortga":
+        return send_main_menu(message.chat.id)
+    
+    try:
+        start_date = datetime.datetime.strptime(message.text, "%Y-%m-%d").date()
+        msg = bot.send_message(
+            message.chat.id,
+            "Tugash sanasini yuboring (YYYY-MM-DD):\nMasalan: 2023-12-31"
+        )
+        bot.register_next_step_handler(msg, process_end_date, start_date)
+    except ValueError:
+        bot.send_message(
+            message.chat.id,
+            "❌ Noto'g'ri format. Iltimos quyidagi formatda yuboring: YYYY-MM-DD"
+        )
+        ask_custom_dates(message)
+
+def process_end_date(message, start_date):
+    if message.text == "🔙 Ortga":
+        return send_main_menu(message.chat.id)
+    
+    try:
+        end_date = datetime.datetime.strptime(message.text, "%Y-%m-%d").date()
+        if end_date < start_date:
+            bot.send_message(
+                message.chat.id,
+                "❌ Tugash sanasi boshlanish sanasidan oldin bo'lishi mumkin emas."
+            )
+            ask_custom_dates(message)
+        else:
+            show_referral_rating(message.chat.id, start_date, end_date)
+    except ValueError:
+        bot.send_message(
+            message.chat.id,
+            "❌ Noto'g'ri format. Iltimos quyidagi formatda yuboring: YYYY-MM-DD"
+        )
+        ask_custom_dates(message)
+
+def show_referral_rating(chat_id, start_date, end_date):
+    users = load_json("users.json")
+    rating = []
+    
+    for user_id, user_data in users.items():
+        try:
+            join_date = datetime.datetime.strptime(
+                user_data.get("joined", "2000-01-01"), 
+                "%Y-%m-%d"
+            ).date()
+            
+            if start_date <= join_date <= end_date:
+                ref_count = len(user_data.get("refs", []))
+                uc_balance = user_data.get("uc", 0)
+                rating.append((int(user_id), ref_count, uc_balance))
+        except Exception as e:
+            print(f"Error processing user {user_id}: {e}")
+    
+    if not rating:
+        bot.send_message(
+            chat_id,
+            f"⚠️ {start_date} dan {end_date} gacha bo'lgan davrda hech qanday referal topilmadi."
+        )
+        return
+    
+    rating.sort(key=lambda x: x[1], reverse=True)
+    
+    message = f"🏆 Referal reyting ({start_date} - {end_date}):\n\n"
+    message += "┌──────────┬──────────────────────┬─────────┬───────┐\n"
+    message += "│ {:<8} │ {:<20} │ {:<7} │ {:<5} │\n".format("Reyting", "Foydalanuvchi", "Do'stlar", "UC")
+    message += "├──────────┼──────────────────────┼─────────┼───────┤\n"
+    
+    for idx, (user_id, ref_count, uc_balance) in enumerate(rating[:10], 1):
+        try:
+            user_chat = bot.get_chat(user_id)
+            username = f"@{user_chat.username}" if user_chat.username else f"ID: {user_id}"
+        except:
+            username = f"ID: {user_id}"
+        
+        message += "│ {:<8} │ {:<20} │ {:<7} │ {:<5} │\n".format(
+            f"#{idx}",
+            username[:20],
+            ref_count,
+            uc_balance
+        )
+    
+    message += "└──────────┴──────────────────────┴─────────┴───────┘\n\n"
+    message += f"📊 Jami referallar: {sum([x[1] for x in rating])}"
+    
+    bot.send_message(chat_id, message, parse_mode="Markdown")
 
 # --- UC WITHDRAWAL ---
 @bot.message_handler(func=lambda msg: msg.text == "💸 UC yechish")
@@ -312,5 +435,6 @@ if __name__ == "__main__":
                     bot.send_message(admin, f"Bot crashed: {e}")
             except Exception as admin_error:
                 print(f"Failed to notify admin {admin}: {admin_error}")
+
 
 
