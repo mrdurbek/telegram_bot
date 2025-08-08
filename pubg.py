@@ -7,18 +7,28 @@ import random
 import datetime
 import os
 import threading
-from flask import Flask, request
 
-# Initialize Flask app for health checks
-app = Flask(__name__)
+# Try to import Flask (optional for health checks)
+try:
+    from flask import Flask
+    FLASK_AVAILABLE = True
+except ImportError:
+    FLASK_AVAILABLE = False
 
-@app.route('/')
-def health_check():
-    return "PUBG UC Bot is running", 200
+# Simple HTTP server fallback
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-def run_flask():
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"PUBG UC Bot is running")
+
+def run_server():
     port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
 
 # Bot Configuration
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -269,8 +279,24 @@ if __name__ == "__main__":
         init_db()
         print("Database initialized")
         
-        # Start Flask server in a separate thread
-        flask_thread = threading.Thread(target=run_flask)
+        # Start health check server in a separate thread
+        if FLASK_AVAILABLE:
+            # Flask server
+            app = Flask(__name__)
+            @app.route('/')
+            def health_check():
+                return "PUBG UC Bot is running", 200
+            
+            flask_thread = threading.Thread(target=lambda: app.run(
+                host='0.0.0.0',
+                port=int(os.environ.get("PORT", 10000)),
+                debug=False,
+                use_reloader=False
+            ))
+        else:
+            # Fallback HTTP server
+            flask_thread = threading.Thread(target=run_server)
+        
         flask_thread.daemon = True
         flask_thread.start()
         
@@ -285,3 +311,4 @@ if __name__ == "__main__":
                 bot.send_message(admin, f"Bot crashed: {e}")
             except:
                 pass
+
