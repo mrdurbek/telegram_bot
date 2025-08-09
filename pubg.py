@@ -325,7 +325,6 @@ def finish_competition(comp_id):
     
     if not participants:
         print(f"No participants for competition {comp_id}")
-        # Notify group that no one participated
         try:
             bot.send_message(
                 GROUP_ID,
@@ -347,7 +346,7 @@ def finish_competition(comp_id):
     winner_mentions = []
     for winner_id in winners:
         try:
-            user = bot.get_chat(winner_id)
+            user = bot.get_chat(int(winner_id))  # Convert to int
             mention = f"@{user.username}" if user.username else f"[{user.first_name}](tg://user?id={user.id})"
             winner_mentions.append(mention)
             
@@ -361,18 +360,34 @@ def finish_competition(comp_id):
             print(f"Could not process winner {winner_id}: {e}")
             winner_mentions.append(f"ID:{winner_id}")
     
-    # Announce in group
+    # Announce in group with proper formatting
     try:
         winners_text = "\n".join([f"🏆 {i+1}. {winner}" for i, winner in enumerate(winner_mentions)])
-        bot.send_message(
-            GROUP_ID,
+        announcement = (
             f"🎊 *Konkurs #{comp_id} yakunlandi!* 🎊\n\n"
             f"G'oliblar:\n{winners_text}\n\n"
-            "Tabriklaymiz! 🎉 Adminlar tez orada siz bilan bog'lanishadi.",
+            "Tabriklaymiz! 🎉 Adminlar tez orada siz bilan bog'lanishadi."
+        )
+        
+        # Send to group with Markdown parsing
+        sent_msg = bot.send_message(
+            GROUP_ID,
+            announcement,
             parse_mode="Markdown"
         )
+        print(f"Announcement sent to group: {sent_msg.message_id}")
+        
     except Exception as e:
         print(f"Could not announce winners in group: {e}")
+        # Try again with simpler format
+        try:
+            winners_text = "\n".join([f"{i+1}. {winner}" for i, winner in enumerate(winner_mentions)])
+            bot.send_message(
+                GROUP_ID,
+                f"Konkurs #{comp_id} g'oliblari:\n{winners_text}"
+            )
+        except Exception as e2:
+            print(f"Second attempt failed: {e2}")
     
     # Notify admin
     for admin_id in ADMIN_IDS:
@@ -410,6 +425,15 @@ def process_comp_winners_count(message, file_id, deadline):
         
     except ValueError:
         bot.send_message(message.chat.id, "Iltimos, 0 dan katta butun son kiriting:")
+
+def competition_checker():
+    while True:
+        try:
+            check_expired_competitions()
+            time.sleep(60 * 2)  # Check every 2 minutes
+        except Exception as e:
+            print(f"Error in competition checker: {e}")
+            time.sleep(60)  # Wait 1 minute before retrying
 
 # --- UC WITHDRAWAL ---
 @bot.message_handler(func=lambda msg: msg.text == "💸 UC yechish")
@@ -575,14 +599,10 @@ if __name__ == "__main__":
         print("Database initialized")
         
         # Start competition checker thread
-        def competition_checker():
-            while True:
-                check_expired_competitions()
-                time.sleep(60 * 5)  # Check every 5 minutes
-        
         checker_thread = threading.Thread(target=competition_checker)
         checker_thread.daemon = True
         checker_thread.start()
+        print("Competition checker started")
         
         # Start health check server
         if FLASK_AVAILABLE:
@@ -602,6 +622,7 @@ if __name__ == "__main__":
         
         flask_thread.daemon = True
         flask_thread.start()
+        print("Health check server started")
         
         print("Starting bot polling...")
         bot.infinity_polling()
@@ -613,6 +634,7 @@ if __name__ == "__main__":
                 bot.send_message(admin, f"Bot crashed: {e}")
             except:
                 pass
+
 
 
 
