@@ -313,7 +313,7 @@ def check_expired_competitions():
     for comp_id, comp in list(competitions.items()):
         try:
             deadline = datetime.datetime.fromisoformat(comp["deadline"])
-            if now >= deadline and "winners_list" not in comp:
+            if now >= deadline and "winners_announced" not in comp:
                 finish_competition(comp_id)
         except Exception as e:
             print(f"Error processing competition {comp_id}: {e}")
@@ -321,32 +321,37 @@ def check_expired_competitions():
 def finish_competition(comp_id):
     competitions = load_json("competitions.json")
     comp = competitions[comp_id]
-    participants = comp["participants"]
+    
+    if "winners_announced" in comp and comp["winners_announced"]:
+        return  # Already processed
+    
+    participants = comp.get("participants", [])
+    winners_count = comp.get("winners", 1)
     
     if not participants:
-        print(f"No participants for competition {comp_id}")
+        # No participants case
+        announcement = f"⚠️ #{comp_id} konkursi yakunlandi. Ishtirokchilar bo'lmadi."
         try:
-            bot.send_message(
-                GROUP_ID,
-                f"⚠️ #{comp_id} konkursi yakunlandi. Ishtirokchilar bo'lmadi."
-            )
+            bot.send_message(GROUP_ID, announcement)
+            bot.send_message(CHANNEL_ID, announcement)
         except Exception as e:
-            print(f"Could not notify group: {e}")
-        return
+            print(f"Error announcing no participants: {e}")
         
-    winners_count = min(comp["winners"], len(participants))
+        # Mark as completed
+        comp["winners_announced"] = True
+        competitions[comp_id] = comp
+        save_json("competitions.json", competitions)
+        return
+    
+    # Select winners
+    winners_count = min(winners_count, len(participants))
     winners = random.sample(participants, winners_count)
     
-    # Save winners
-    comp["winners_list"] = winners
-    competitions[comp_id] = comp
-    save_json("competitions.json", competitions)
-    
-    # Prepare winner mentions
+    # Prepare announcement
     winner_mentions = []
     for winner_id in winners:
         try:
-            user = bot.get_chat(int(winner_id))  # Convert to int
+            user = bot.get_chat(int(winner_id))
             mention = f"@{user.username}" if user.username else f"[{user.first_name}](tg://user?id={user.id})"
             winner_mentions.append(mention)
             
@@ -360,36 +365,51 @@ def finish_competition(comp_id):
             print(f"Could not process winner {winner_id}: {e}")
             winner_mentions.append(f"ID:{winner_id}")
     
-    # Announce in group with proper formatting
+    # Create announcement message
+    winners_text = "\n".join([f"🏆 {i+1}. {winner}" for i, winner in enumerate(winner_mentions)])
+    announcement = (
+        f"🎊 *Konkurs #{comp_id} yakunlandi!* 🎊\n\n"
+        f"G'oliblar ({len(winners)} ta):\n{winners_text}\n\n"
+        "Tabriklaymiz! 🎉 Adminlar tez orada siz bilan bog'lanishadi."
+    )
+    
+    # Send to both group and channel
     try:
-        winners_text = "\n".join([f"🏆 {i+1}. {winner}" for i, winner in enumerate(winner_mentions)])
-        announcement = (
-            f"🎊 *Konkurs #{comp_id} yakunlandi!* 🎊\n\n"
-            f"G'oliblar:\n{winners_text}\n\n"
-            "Tabriklaymiz! 🎉 Adminlar tez orada siz bilan bog'lanishadi."
-        )
-        
-        # Send to group with Markdown parsing
-        sent_msg = bot.send_message(
+        # Send to group
+        bot.send_message(
             GROUP_ID,
             announcement,
             parse_mode="Markdown"
         )
-        print(f"Announcement sent to group: {sent_msg.message_id}")
         
+        # Send to channel
+        bot.send_message(
+            CHANNEL_ID,
+            announcement,
+            parse_mode="Markdown"
+        )
+        
+        print(f"Winners announced for competition {comp_id}")
     except Exception as e:
-        print(f"Could not announce winners in group: {e}")
-        # Try again with simpler format
+        print(f"Error announcing winners: {e}")
+        # Fallback - try without Markdown
         try:
             winners_text = "\n".join([f"{i+1}. {winner}" for i, winner in enumerate(winner_mentions)])
-            bot.send_message(
-                GROUP_ID,
-                f"Konkurs #{comp_id} g'oliblari:\n{winners_text}"
+            announcement = (
+                f"Konkurs #{comp_id} g'oliblari ({len(winners)} ta):\n{winners_text}"
             )
+            bot.send_message(GROUP_ID, announcement)
+            bot.send_message(CHANNEL_ID, announcement)
         except Exception as e2:
-            print(f"Second attempt failed: {e2}")
+            print(f"Fallback announcement failed: {e2}")
     
-    # Notify admin
+    # Update competition status
+    comp["winners"] = winners
+    comp["winners_announced"] = True
+    competitions[comp_id] = comp
+    save_json("competitions.json", competitions)
+    
+    # Notify admins
     for admin_id in ADMIN_IDS:
         try:
             bot.send_message(
@@ -430,7 +450,7 @@ def competition_checker():
     while True:
         try:
             check_expired_competitions()
-            time.sleep(60 * 2)  # Check every 2 minutes
+            time.sleep(60)  # Check every minute
         except Exception as e:
             print(f"Error in competition checker: {e}")
             time.sleep(60)  # Wait 1 minute before retrying
@@ -599,6 +619,15 @@ if __name__ == "__main__":
         print("Database initialized")
         
         # Start competition checker thread
+        def competition_checker():
+            while True:
+                try:
+                    check_expired_competitions()
+                    time.sleep(60)  # Check every minute
+                except Exception as e:
+                    print(f"Error in competition checker: {e}")
+                    time.sleep(60)  # Wait before retrying
+        
         checker_thread = threading.Thread(target=competition_checker)
         checker_thread.daemon = True
         checker_thread.start()
@@ -634,15 +663,3 @@ if __name__ == "__main__":
                 bot.send_message(admin, f"Bot crashed: {e}")
             except:
                 pass
-
-
-
-
-
-
-
-
-
-
-
-
